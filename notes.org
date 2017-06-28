@@ -1,0 +1,142 @@
+* Methods
+** Definitions
+*** Covariance Matrix
+    \begin{align}
+    \left ( \mat{S}_\vec{x} \right ) _{i,j} =  cov \left ( \vec{x}_i - \vec{x}_j \right ) \\
+    \end{align}
+  Empirical covariance matrix for $n_s$ observations given as tensor $\mat{x} \in \rrr{11\times n_s}$:
+    \begin{align}
+    \mat{S} &= \frac{\left(\vec{x} - \bar{\vec{x}} \right) \left ( \vec{x} - \bar{\vec{x}} \right )^T}{n - 1}
+    \end{align}
+  Eigenvectors and -values of the covariance matrix can be computed directly from $\frac{\vec{x} - \bar{\vec{x}}}{\sqrt{n_s}}$ by
+  computing the SVD:
+  \begin{align}
+  \frac{\vec{x} - \bar{\vec{x}}}{\sqrt{n_s}} &= \mat{U}\mat{\Lambda}\mat{V}
+  \end{align}
+  The columns of $\mat{U}$ then contain the eigenvectors of $\mat{S}$ and the diagonal entries of $\mat{\Lambda}$ the square roots
+  of its eigenvalues
+
+*** Singular Value Decomposition (SVD)
+   \begin{align}
+   \mat{M} = \mat{U} \mat{\Sigma} \mat{V}
+   \end{align}
+
+   + $\mat{M} \in \rrr{m \times n}$, $\mat{U} \in \rrr{m \times m}$ unitary, $\mat{\Sigma} \in \rrr{m \times n}$ rectangular diagonal, $\mat{V} \in \rrr{n \times n}$ unitary
+   + singular values: diagonal entries of $\mat{Sigma}$
+   + unitary matrix: $\mat{U}^*\mat{U} = \mat{I}$
+   + left singular vectors of $\mat{M}$ are the eigenvectors of $\mat{M}\mat{M}^*$
+   + right singular vectors of $\mat{M}$ are the eigenvectors of $\mat{M}^*\mat{M}$
+   + use SVD to compute eigenvectors of sample covariance matrix
+
+*** Correlation Coefficient Matrix
+   Obtained from the /covariance matrix/ by normalizing by the corresponding variances
+   \begin{align}
+   \left ( \mat{S}_C \right )_{i,j} = \frac{\left ( \mat{S} \right ) _{i,j}}{ \sigma(x_i) \sigma(x_j)}
+   \end{align}
+    
+*** Weighted Sums of Variables
+   The variance of a weighted sum of random variables is given by the following formula:
+   \begin{align}
+   Var \left ( \sum_{i=1}^n a_i X_i \right ) = \sum_{i=1}^n a_i^2 Var(X_i) + 2 \sum_{i=1}\sum_{j=i+1}^n a_i a_j Cov(X_i, X_j)
+   \end{align}
+   For uncorrelated variables this simplifies to:
+   \begin{align}
+   Var \left ( \sum_{i=1}^n a_i X_i \right ) = \sum_{i=1}^n a_i^2 Var(X_i) 
+   \end{align}
+   
+* ICI Simulation Database
+** Noise Levels
+    
+    | Channel |  $\nu \:[\SI{}{\giga \hertz}]$ | $NE\Delta T$ |
+    |---------+--------------------------------|--------------|
+    |       1 |  183.31                        | 0.8          |
+    |       2 |  183.31                        | 0.8          |
+    |       3 |  183.31                        | 0.8          |
+    |       4 | 243.2                          | 0.7          |
+    |       5 | 325.15                         | 1.2          |
+    |       6 | 325.15                         | 1.3          |
+    |       7 | 325.15                         | 1.5          |
+    |       8 | 448.0                          | 1.4          |
+    |       9 | 448.0                          | 1.6          |
+    |      10 | 448.0                          | 2.0          |
+    |      11 | 664.2                          | 1.6          |
+
+    - Computation of noise levels for PCAs:
+      \begin{align}
+      \vec{N}_{PCA}^2 &= \left(\mat{U}^2\right)^T \vec{N_{\DeltaT}}^2 \quad \text{(Element-wise Squares)}
+      \end{align}
+
+** Data Exploration
+*** General
+*** IWP
+    [[./plots/general/iwp_dist.png]]
+*** Surface Type
+   [[./plots/general/surface_type_dist.png]]
+*** Brightness Temperatures
+   [[./plots/general/dtb_tb_dist.png]]
+*** Optical Depth
+    [[./plots/general/od_dist.png]]
+*** PCA
+    [[./plots/general/pca_channels.png]]
+    [[./plots/general/pca_s.png]]
+*** Clear Sky
+*** IWP
+    [[./plots/clear_sky/iwp_dist.png]]
+*** Surface Type
+   [[./plots/clear_sky/st_dist.png]]
+*** Brightness Temperatures
+   [[./plots/clear_sky/tb_dist.png]]
+*** Optical Depth
+    [[./plots/clear_sky/od_dist.png]]
+*** PCA
+    [[./plots/clear_sky/pca_channels.png]]
+    [[./plots/clear_sky/pca_s.png]]
+
+*** Tropics (CWV > $\SI{40}{\kilo \gram \per \meter \squared}$)
+*** CWV
+    [[./plots/tropics/cwv_dist.png]]
+*** IWP
+    [[./plots/tropics/iwp_dist.png]]
+*** Surface Type
+   [[./plots/tropics/st_dist.png]]
+*** Brightness Temperatures
+   [[./plots/tropics/tb_dist.png]]
+*** Optical Depth
+    [[./plots/tropics/od_dist.png]]
+*** PCA
+    [[./plots/tropics/pca_channels.png]]
+    [[./plots/tropics/pca_s.png]]
+
+* Paper Notes
+** A Hotelling Transformation Approach for Rapid Inversion of Atmospheric Data
+   Investigates data reduction techniques based on eigenvector expansions (/hotelling transformations/).
+*** Inversion Techniques
+    OEM and neural networks as inversion techniques are presented with focus on the need (or advantages)
+    of dimensionality reduction of the measurement vector $\vec{y}$.
+   
+*** Hotelling Transformations
+    The most common hotelling transformation is PCA (Kahunen-Loeve transformation, EOF) and is based on an
+    eigenvector expansion of the (empirical) measurement covariance matrix $\mat{S}_\vec{y}$:
+      \begin{align}
+      \mathbf{S}_\mathbf{y} = \mathbf{E}\mathbf{\Lambda}\mathbf{E}^T
+      \end{align}
+   Another possibility is to use an eigenvector expansion of the corresponding /correlation coefficient matrix/.
+   
+   The newly presented transformation in this paper is based on using an OEM approach to compute $\mat{S}_\vec{y}$:
+      \begin{align}
+      \mat{S}_\vec{y} &= \mat{K}_\vec{x}^T \mat{S}_\vec{x} \mat{K}_\vec{x} + \mat{K}_\vec{b}^T \mat{S}_\vec{b} \mat{K}_\vec{b} + \mat{S}_\epsilon
+      \end{align}
+      Only /physical/ information is considered, i.e. the second and third term are ignored. This has similarities with the
+      truncated SVD retrieval method.
+
+*** Information Content
+    To compare the reduction techniques, the information content of the retrieval w.r.t to $k$ (the number of eigenvalues used
+    in the expansion)  and the measurement error for $k=50$ are used for a number of different simulated retrievals.
+    \begin{align}
+    H &= \frac{1}{2} \log_2 |\mat{S}_\delta^{-1} | \\
+    \Delta H &= \frac{1}{2} \log_2 |\mat{S}_\delta^{-1} | - \frac{1}{2} \log_2 |\mat{S}_\vec{x}^{-1} | \\
+    \end{align}
+    where $|\mat{S}_\delta^{-1}|$: determinant of the inverse of the measurement error
+***   Results
+    The newly proposed methods performs comparable to the method based on $\mat{S}_\vec{y}$ for noise-free data. Otherwise
+    it performs even better. Also provides the possibility of improving the reduction for specific species.
