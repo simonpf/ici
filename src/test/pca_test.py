@@ -38,6 +38,12 @@ class TestPCA(unittest.TestCase):
         z   = pca.revert(y)
         self.assertTrue(np.allclose(z, self.x))
 
+    def test_transform_transposed(self):
+        pca = PCA.fromCMatrix(self.u)
+        y   = pca.apply(np.transpose(self.x))
+        z   = pca.revert(y)
+        self.assertTrue(np.allclose(z, np.transpose(self.x)))
+
     def cleanUp(self):
         os.remove('u.py')
 

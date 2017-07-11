@@ -66,47 +66,84 @@
       \vec{N}_{PCA}^2 &= \left(\mat{U}^2\right)^T \vec{N_{\DeltaT}}^2 \quad \text{(Element-wise Squares)}
       \end{align}
 
+** Clear Sky
+   - Detection threshold: $\sim \SI{10}{\gram \per \meter \squared}$
 ** Data Exploration
 *** General
-*** IWP
+**** IWP
     [[./plots/general/iwp_dist.png]]
-*** Surface Type
-   [[./plots/general/surface_type_dist.png]]
-*** Brightness Temperatures
-   [[./plots/general/dtb_tb_dist.png]]
-*** Optical Depth
+**** Surface Type
+    [[./plots/general/surface_type_dist.png]]
+**** Brightness Temperatures
+    [[./plots/general/dtb_tb_dist.png]]
+**** Optical Depth
     [[./plots/general/od_dist.png]]
-*** PCA
+**** PCA
     [[./plots/general/pca_channels.png]]
     [[./plots/general/pca_s.png]]
 *** Clear Sky
-*** IWP
+**** IWP
     [[./plots/clear_sky/iwp_dist.png]]
-*** Surface Type
-   [[./plots/clear_sky/st_dist.png]]
-*** Brightness Temperatures
-   [[./plots/clear_sky/tb_dist.png]]
-*** Optical Depth
-    [[./plots/clear_sky/od_dist.png]]
-*** PCA
+**** Surface Type
+[[./plots/clear_sky/st_dist.png]]
+**** Brightness Temperatures
+[[./plots/clear_sky/tb_dist.png]]
+**** Optical Depth
+[[./plots/clear_sky/od_dist.png]]
+**** PCA
     [[./plots/clear_sky/pca_channels.png]]
     [[./plots/clear_sky/pca_s.png]]
 
 *** Tropics (CWV > $\SI{40}{\kilo \gram \per \meter \squared}$)
-*** CWV
+**** CWV
     [[./plots/tropics/cwv_dist.png]]
-*** IWP
+**** IWP
     [[./plots/tropics/iwp_dist.png]]
-*** Surface Type
+**** Surface Type
    [[./plots/tropics/st_dist.png]]
-*** Brightness Temperatures
+**** Brightness Temperatures
    [[./plots/tropics/tb_dist.png]]
-*** Optical Depth
+**** Optical Depth
     [[./plots/tropics/od_dist.png]]
-*** PCA
+**** PCA
     [[./plots/tropics/pca_channels.png]]
     [[./plots/tropics/pca_s.png]]
 
+** Degrees of Freedom
+*** DoFs Based on PCA Analysis
+    - Number of degrees of freedom as PCA scores above corresponding noise level
+    - Computed for different humidity and cloud cover regimes
+      #+CAPTION: Degrees of Freedom w.r.t. CWV and IWP
+    [[./plots/dofs/dofs.png]] 
+      #+CAPTION: Number of simulations used in the computation of the degrees of freedom.
+    [[./plots/dofs/counts.png]]
+* Clear Sky Classification
+** Data
+   $m_{train} = 1794533$ ($80\%$) Mesaurements used for training, $m_{test} = 199393$ ($20\%$) used for testing. This is just for
+   exploratory purposes and should be extended with at least on independent test set, that is used solely for
+   evaluation purposes.
+** Preprocessing
+   Training data given as matrix $\mat{X} \in \rrr{m_{train} \times n}$ with $n = 11$. The input data is shifted so 
+   that $\mathcal{E}(\mat{X}) = \mat{0}$
+
+** Implementation
+   For the training and evaluation of the networks the ~Keras~ python package with the ~theano~ backend is used.
+
+** Training
+   The training is performed over 2 epochs with a batch size of 32 applying /stochastic gradient descent/. The remaining settings are
+   ~Keras~ default settings.
+
+** Results
+*** PCA and Noise
+    How does a PCA affect the training of a neural network? What influence does the noise have. Different shallow and deep(er) networks are
+    trained on the data. The shallow networks are MLPs with one hidden layer with $64$ neurons and /sigmoid/ activation and output functions. The
+    deep(er) networks are similar in structure except that they contain two additional hidden layers with 64 neurons each and /sigmoid/ activation functions.
+
+    #+CAPTION: Classifier performance on noisy training and test data.
+    [[./plots/classification/clear sky/tpr_fpr_pca_shallow.png]]
+    #+CAPTION: Classifier performance on noise-free training and test data.
+    [[./plots/classification/clear sky/tpr_fpr_pca_shallow_no_noise.png]]
+   
 * Paper Notes
 ** A Hotelling Transformation Approach for Rapid Inversion of Atmospheric Data
    Investigates data reduction techniques based on eigenvector expansions (/hotelling transformations/).

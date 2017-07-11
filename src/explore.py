@@ -32,7 +32,7 @@ class IciData:
 
         # Channels
         if (version < 3):
-            var_name_tb = "tb_cs_ch_"
+            var_name_tb = "tb_fs_ch_"
             var_name_od = "od_cs_ch_"
         else:
             var_name_tb = "dtb_ch_"
@@ -312,10 +312,9 @@ class IciData:
             print("Could not load SVD.")
             u = np.load("data/" + prefix + "u.npy")
             s = np.load("data/" + prefix + "s.npy")
-
         ns = np.sqrt(np.dot(np.transpose(u ** 2), self.noise ** 2))
         plt.figure()
-        plt.plot(s, label =  "Singular Values")
+        plt.plot(s , label =  "Singular Values")
         plt.plot(ns, label = r"$NE \Delta T$")
         ax = plt.gca()
         ax.set_xlabel("PCA Component")
@@ -376,7 +375,7 @@ class IciData:
 
         # Channels
         if (self.version < 3):
-            var_name_tb = "tb_cs_ch_"
+            var_name_tb = "tb_fs_ch_"
             var_name_od = "od_cs_ch_"
         else:
             var_name_tb = "dtb_ch_"
@@ -390,6 +389,10 @@ class IciData:
             channel[:] = self.channels_od[i]
 
         data.close()
+
+    def add_noise(self):
+        for i in range(len(self.channels)):
+            self.channels[i] = self.channels[i] + np.random.normal(loc=0.0, scale=self.noise[i], size=self.channels[i].shape)
 
     def split_data(self, name):
         inds   = np.random.permutation(self.n)

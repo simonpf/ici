@@ -22,9 +22,12 @@ class PCA:
         """
         assert (mat.shape[-1] == self.n) or (mat.shape[-2] == self.n)
         if (mat.shape[-1] == self.n):
-            return np.tensordot(self.u, mat, [1, mat.ndim - 1])
-        else if (mat.shape[-2] == self.n):
-            return np.tensordot(self.u, mat, [1, mat.ndim - 2])
+            dmat = mat
+            return np.tensordot(dmat, self.u, [mat.ndim - 1, 1])
+
+        elif (mat.shape[-2] == self.n):
+            dmat = mat
+            return np.tensordot(self.u, dmat, [1, mat.ndim - 2])
 
     def revert(self, mat):
         """
@@ -33,8 +36,8 @@ class PCA:
         """
         assert (mat.shape[-1] == self.n) or (mat.shape[-2] == self.n)
         if (mat.shape[-1] == self.n):
-            return np.tensordot(self.u, mat, [0, mat.ndim - 1])
-        else if (mat.shape[-2] == self.n):
+            return np.tensordot(mat, self.u, [mat.ndim - 1, 0])
+        elif (mat.shape[-2] == self.n):
             return np.tensordot(self.u, mat, [0, mat.ndim - 2])
 
     @classmethod
