@@ -183,7 +183,7 @@ class IciData:
         ax = plt.gca()
         ax.set_yscale("log")
         if (self.iwp.min() == 0.0):
-            ax.hist(self.iwp[self.iwp == 0.0], bins1[:2], label="Clear Sky")
+            ax.hist(self.iwp[self.iwp == 0.0], bins1[:2], label="Clear Sky", color="C1", zorder=10)
         ax.set_xlim([0.0, bins1[-1]])
         plt.legend()
         plt.title("IWP Distribution")
