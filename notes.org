@@ -144,6 +144,62 @@
     #+CAPTION: Classifier performance on noise-free training and test data.
     [[./plots/classification/clear sky/tpr_fpr_pca_shallow_no_noise.png]]
    
+* MCI Trees
+  The idea is to learn an importance sampling function that predicts the IWP from the ICI measurements.
+** Algorithm Outline
+   Each node $n$ in the tree represents a cluster of simulation results with IWP $x_n = \frac{\sum_i^N x_i}{N}$ and
+   $\vec{y}_n = \frac{\sum_i^N \vec{y}_i}{N}$. Splitting is performed in a greedy fashion by splitting along the variable that
+   yields the greatest decrease in the loss function. The loss function is chosen to be the squared error loss on the retrieved
+   water vapor.
+** General Formulation
+*** Problem Statement
+    We are given a set of observations consisting of a pair $(\mat{Y}, \vec{x})$ with $\mat{Y} \in \rrr{m \times n}$ and
+    $\vec{x} \in \rrr{m}$ and $m$ the number of observations. We want to learn a vector of node values $\bar{\vec{x}} \in \rrr{n_T}$ and
+    a matrix of node locations $\bar{\mat{Y}} \in \rrr{n_T \times n}$ such that for a given $\vec{y} \in \rrr{n}$
+    \begin{align}
+    \hat{x}(\vec{y}) &= \sum_j  \frac{ \bar{x}_j P(y | \bar{x}_j)}{\sum_k P(y | \bar{x}_k)}
+    \end{align}
+    approximates the true corresponding $x$. Here we assume for $p_j(y) = P(y | \bar{x}_j) = \exp \{ - (\vec{y} - \bar{y}_j) \mathbf{S}^{-1} (y - \bar{y}_j) \}$. 
+    \end{align}
+    
+*** The Tree
+    The node values and locations can be represented by a tree $\mathcal{T} = (\bar{\vec{x}}, \bar{\mat{Y}})$.
+    
+*** Loss Function
+   Given a loss function $f: \rrr{} \mapsto \rrr{}$ a loss over a training set $(\mat{Y}, \vec{x})$ can be defined as:
+     \begin{align}
+     \mathcal{L}(\vec{x}, \mat{Y}, \bar{\vec{x}}, \bar{\mat{Y}}) &= \sum_i f \left(
+    x_i - \sum_j  \frac{ \bar{x}_j p_j(y_i)}{\sum_k p_k(y_i)} \right )
+     \end{align}
+   The gradients w.r.t to the parameters describing the tree are given by:
+     \begin{align}
+     \frac{d \mathcal{L}(\vec{x}, \mat{Y}, \vec{\bar{x}}, \bar{\mat{Y}})}{d\bar{x_j}}
+ &= - \sum_i \frac{p_j(\vec{y}_i)}{P(\vec{y}_i)} \frac{df}{dx}(x_i, \vec{Y}_i, \bar{\vec{x}}, \bar{\mat{Y}}) \\
+     \frac{d \mathcal{L}(\vec{x}, \mat{Y}, \vec{\bar{x}}, \bar{\mat{Y}})}{d\bar{\vec{y}_j}}
+ &= - \sum_i \left (
+            \frac{\frac{d p_j(\vec{y}_i)}{d\vec{\bar{y}}_j}}{P(\vec{y}_i)} 
+            - \frac{\frac{d p_j(\vec{y}_i)}{d\vec{\bar{y}}_j}}{P(\vec{y}_i)^2} \right ) \frac{df}{dx}(x_i, \vec{Y}_i, \bar{\vec{x}}, \bar{\mat{Y}}) 
+     \end{align}
+
+*** Squared Error Loss
+    For squared error loss the gradients thus take the form:
+
+     \begin{align}
+     \frac{d \mathcal{L}(\vec{x}, \mat{Y}, \vec{\bar{x}}, \bar{\mat{Y}})}{d\bar{x_j}}
+ &= - 2 \sum_i \frac{p_j(\vec{y}_i)}{P(\vec{y}_i)} \left ( x_i - \sum_j \frac{\bar{x}_j p_j(\vec{y}_i)}{\sum_k p_k(\vec{y}_i)} \right ) \\
+     \frac{d \mathcal{L}(\vec{x}, \mat{Y}, \vec{\bar{x}}, \bar{\mat{Y}})}{d\bar{\vec{y}_j}}
+ &= - \sum_i \left (
+            \frac{\frac{d p_j(\vec{y}_i)}{d\vec{\bar{y}}_j}}{P(\vec{y}_i)} 
+            - \frac{\frac{d p_j(\vec{y}_i)}{d\vec{\bar{y}}_j}}{P(\vec{y}_i)^2} \right ) \left ( x_i - \sum_j \frac{\bar{x}_j p_j(\vec{y}_i)}{\sum_k p_k(\vec{y}_i)} \right )
+     \end{align}
+   
+    The derivatives $\frac{d p_j(\vec{y})}{d\bar{\vec{y}_j}}$ are given by:
+    \begin{align}
+\frac{d p_j(\vec{y})}{d\bar{\vec{y}_j}} &=
+ 2 \mat{S}^{-1}(\vec{y} - \bar{\vec{y}_j}) 
+\exp \left \{ - (\vec{y} - \bar{\vec{y}_j}) \mathbf{S}^{-1} (\vec{y} - \bar{\vec{y}}_j) \right \}
+    \end{align}
+
 * Paper Notes
 ** A Hotelling Transformation Approach for Rapid Inversion of Atmospheric Data
    Investigates data reduction techniques based on eigenvector expansions (/hotelling transformations/).
@@ -177,3 +233,4 @@
 ***   Results
     The newly proposed methods performs comparable to the method based on $\mat{S}_\vec{y}$ for noise-free data. Otherwise
     it performs even better. Also provides the possibility of improving the reduction for specific species.
+** Structured Probabilistic Models

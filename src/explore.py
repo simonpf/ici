@@ -415,10 +415,6 @@ class IciData:
     def get_output_data(self, type):
         if (type == "clear_sky"):
             y = np.asarray((self.iwp == 0.0), dtype=np.int)
+        if (type == "iwp"):
+            y = np.asarray(self.iwp)
         return y
-
-
-
-
-
-
