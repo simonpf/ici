@@ -1,4 +1,6 @@
 #include <stdlib.h>
+#include <cmath>
+#include <iostream>
 
 ////////////////////////////////////////////////////////////////////////////////
 // The BMCI Class
@@ -6,12 +8,12 @@
 template <typename TFloat>
 class BMCI {
 public:
-    BMCI(TFloat *Y, TFloat *x, TFloat *s, size_t m, size_t n) : m_(m), n_(n), Y_(*Y), x_(x), s_(s) {}
+    BMCI(TFloat *Y, TFloat *x, TFloat *s, size_t m, size_t n) : m_(m), n_(n), Y_(Y), x_(x), s_(s) {}
     BMCI(const BMCI &)  = default;
     BMCI(      BMCI &&) = default;
-    BMCI & operator=(const BMCI &&) = default;
+    BMCI & operator=(const BMCI &)  = default;
     BMCI & operator=(      BMCI &&) = default;
-    ~BMCI() = default;
+    ~BMCI(){};
 
     void expectation(TFloat *x_hat,  const TFloat *Y, size_t m);
 
@@ -24,14 +26,16 @@ template <typename TFloat>
 void BMCI<TFloat>::expectation(TFloat *x_hat, const TFloat *Y, size_t m)
 {
     TFloat *dY = new TFloat[n_];
+    size_t Y_i_ind(0);
     for (size_t i = 0; i < m; i++) {
+        std::cerr << "i:" << i << std::endl;
         x_hat[i] = 0.0;
         TFloat p_sum(0.0);
-        size_t Y_i_ind(0);
+        size_t Y_j_ind(0);
         for (size_t j = 0; j < m_; j++) {
             TFloat p(0.0), dy(0.0), dySdy(0.0);
-            size_t Y_j_ind(0);
-            for (size_t k = 0; j < n_; j++) {
+            for (size_t k = 0; k < n_; k++) {
+                std::cout << Y_[Y_j_ind + k] << std::endl;
                 dy = Y_[Y_j_ind + k] - Y[Y_i_ind + k];
                 dySdy += dy * dy / s_[k];
             }
@@ -40,6 +44,7 @@ void BMCI<TFloat>::expectation(TFloat *x_hat, const TFloat *Y, size_t m)
             x_hat[i] += p * x_[j];
             Y_j_ind += n_;
         }
+        x_hat[i] /= p_sum;
         Y_i_ind += n_;
     }
 }
@@ -48,30 +53,37 @@ void BMCI<TFloat>::expectation(TFloat *x_hat, const TFloat *Y, size_t m)
 // The Python Interface
 ////////////////////////////////////////////////////////////////////////////////
 #include <Python.h>
+#include <numpy/npy_common.h>
+#include <numpy/arrayobject.h>
 
 extern "C" {
 
-    static PyObject*
+    static PyObject *
     bmci_expectation(PyObject *self, PyObject *args)
     {
         PyObject *Y_db_array, *x_db_array, *s_array, *Y_array;
-        if (!PyArg_ParseTuple(args, "z", Y_db_array, "z", x_db_array, "z", s_array, "z", Y_array )) {
+        if (!PyArg_ParseTuple(args, "OOOO", &Y_db_array, &x_db_array, &s_array, &Y_array)) {
             return NULL;
         }
         size_t m_db(0), n(0), m(0);
-        m_db = PyArray_DIMS(Y_db_array)[0];
-        n    = PyArray_DIMS(Y_db_array)[1];
-        m    = PyArray_DIMS(Y_array)[0];
+        m_db = (size_t) PyArray_DIMS(Y_db_array)[0];
+        n    = (size_t) PyArray_DIMS(Y_db_array)[1];
+        m    = (size_t) PyArray_DIMS(Y_array)[0];
 
-        BMCI<double> bmci(PyArray_DATA(Y_db_array), PyArray_DATA(x_db_array), PyArray_DATA(s_array), m_db, n);
+        BMCI<double> bmci((double*) PyArray_DATA(Y_db_array),
+                          (double*) PyArray_DATA(x_db_array),
+                          (double*) PyArray_DATA(s_array),
+                          m_db, n);
+        npy_intp *dims = new npy_intp[2];
+        dims[0] = m;
+        dims[1] = 1;
+        int nd = 2;
+        PyObject *x = PyArray_SimpleNew(nd, dims, NPY_FLOAT64);
+        bmci.expectation((double*) PyArray_DATA(x), (double*) PyArray_DATA(Y_array), m);
 
-        np_intp *dims = new np_intp[2];
-        np_intp[0] = m;
-        np_intp[1] = 1;
-        PyObject *x = PyArray_SimpleNew(2, dims, NPY_FLOAT64);
-        bmci.expectation(PyArray_Data(x), PyArray_Data(Y_array), m);
-
-        return x;
+        // Clean up.
+        delete[] dims;
+        return PyArray_Return((PyArrayObject*)x);
     }
 
     static PyMethodDef methods[] = {
@@ -89,8 +101,9 @@ extern "C" {
     };
 
     PyMODINIT_FUNC
-    PyInit_bmci(void)
+    PyInit_bmcixx(void)
     {
+        import_array();
         return PyModule_Create(&bmci_module);
     }
 }

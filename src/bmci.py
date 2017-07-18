@@ -1,9 +1,16 @@
 import numpy             as np
 import scipy.linalg.blas as blas
 
+from bmcixx import bmci_expectation
+
 class BMCI:
     def __init__(self, Y, x, s):
-        self.Y = Y
+        # Ensure Y is in C order.
+        if (Y.flags.f_contiguous):
+            self.Y = np.array(Y, order='C')
+        else:
+            self.Y = Y
+
         if x.ndim == 1:
             self.x = x.reshape(-1,1)
         else:
@@ -13,6 +20,13 @@ class BMCI:
         self.n = Y.shape[1]
 
     def expectation(self, Y):
+        # Ensure Y is in C order.
+        if (Y.flags.f_contiguous):
+            return bmci_expectation(self.Y, self.x, self.s, np.array(Y, order='C'))
+        else:
+            return bmci_expectation(self.Y, self.x, self.s, Y)
+
+    def expectation_native(self, Y):
         x = np.zeros((Y.shape[0],1))
         for i in range(Y.shape[0]):
             print (i,Y.shape[0])
