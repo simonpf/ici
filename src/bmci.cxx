@@ -3,31 +3,65 @@
 #include <iostream>
 #include <limits>
 #include <algorithm>
+#include <memory>
+
+template <typename T>
+struct mem_traits {
+    static constexpr size_t padding   = 768;
+    static constexpr size_t alignment = 32;
+
+    static constexpr size_t array_padding = 2 * (alignment / sizeof(T)) + 1;
+};
+
+template<>
+struct mem_traits<double> {
+    static constexpr size_t padding   = 768;
+    static constexpr size_t alignment = 32;
+    static constexpr size_t array_padding = 2 * (alignment / sizeof(double)) + 1;
+};
+
+template<>
+struct mem_traits<float> {
+    static constexpr size_t padding   = 384;
+    static constexpr size_t alignment = 32;
+    static constexpr size_t array_padding = 2 * (alignment / sizeof(float)) + 1;
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 // The BMCI Class
 ////////////////////////////////////////////////////////////////////////////////
-template <typename TFloat>
+template <typename TFloat, template<typename> class TMem = mem_traits>
 class BMCI {
+
+    // Alignment Properties
+    static constexpr size_t alignment     = TMem<TFloat>::alignment;
+    static constexpr size_t array_padding = TMem<TFloat>::array_padding;
+    static constexpr size_t row_padding   = TMem<TFloat>::padding / sizeof(TFloat);
+
 public:
     BMCI(const double *Y, const double *x, const double *s, size_t m, size_t n)
-        : m_(m), n_(n), Y_(new TFloat[m * n]), x_(new TFloat[m]), s_(new TFloat[n]),
-          hist_min_(std::numeric_limits<TFloat>::max()), hist_max_(0.0)
+        : m_(m), n_(n), hist_min_(std::numeric_limits<TFloat>::max()), hist_max_(0.0)
     {
-        for (size_t i = 0; i < m; ++i) {
-            for (size_t j = 0; j < n; ++j) {
-                Y_[i * n + j] = static_cast<TFloat>(Y[i * n + j]);
-            }
-            x_[i] = static_cast<TFloat>(x[i]);
+        // Aligned Memory
+        std::tie(Y_ptr_, Y_)         = allocate_matrix_aligned(m, n, alignment, row_padding);
+        std::tie(x_ptr_, x_)         = allocate_vector_aligned(m, alignment);
+        std::tie(s_inv_ptr_, s_inv_) = allocate_matrix_aligned(1, n, alignment, row_padding);
 
+        // Copy Data
+        copy_matrix_padded(Y_, Y, m);
+        copy_matrix_padded(s_inv_, s, 1);
+        copy_vector(x_, x, m);
+
+        for (size_t i = 0; i < n; ++i) {
+            s_inv_[i] = static_cast<TFloat>(1.0 / s[i]);
+        }
+
+        // Get Histogram Limits.
+        for (size_t i = 0; i < m; ++i) {
             hist_min_ = (x[i] != 0.0) ? std::min(hist_min_, x_[i]) : hist_min_;
             hist_max_ = std::max(hist_max_, x_[i]);
         }
         hist_max_ *= (1.0 + 1e-6);
-
-        for (size_t i = 0; i < n; ++i) {
-            s_[i] = static_cast<TFloat>(s[i]);
-        }
     }
 
     BMCI(const BMCI &)  = default;
@@ -37,25 +71,101 @@ public:
 
     ~BMCI()
     {
-        delete Y_;
-        delete x_;
-        delete s_;
+        // Memory is managed by std::unique_ptr.
     };
 
-    void expectation(TFloat *x_hat,  const TFloat *Y, size_t m);
-    void pdf(TFloat *x_hat, TFloat *hist,  const TFloat *Y, size_t m, size_t n_bins);
+    template<typename T>
+    void expectation(TFloat *x_hat,  const T *Y, size_t m);
+    template<typename T>
+    void pdf(TFloat *x_hat, TFloat *hist, const T *Y, size_t m, size_t n_bins);
 
 private:
 
+    std::pair<std::unique_ptr<TFloat[]>, TFloat*> allocate_matrix_aligned(size_t m, size_t n, size_t alignment, size_t row_padding)
+    {
+        size_t n_elements = m * row_padding;
+        size_t n_padding  = std::max<size_t>(alignment / sizeof(TFloat), 1);
+        size_t size       = n_elements * sizeof(TFloat);
+        size_t space      = (n_elements + n_padding) * sizeof(TFloat);
+        std::unique_ptr<TFloat[]> mat_ptr = std::make_unique<TFloat[]>(n_elements + n_padding);
+
+        void *ptr = reinterpret_cast<void*>(mat_ptr.get());
+        if (std::align(alignment, size, ptr, space)) {
+            return std::make_pair(std::move(mat_ptr), reinterpret_cast<TFloat*>(ptr));
+        } else {
+            throw std::runtime_error("Couldn't allocate matrix.");
+        }
+        return std::make_pair(nullptr, nullptr);
+    }
+
+    std::pair<std::unique_ptr<TFloat[]>, TFloat*> allocate_vector_aligned(size_t m, size_t alignment)
+        {
+            size_t n_elements = m;
+            size_t n_padding  = std::max<size_t>(alignment / sizeof(TFloat), 1);
+            size_t size       = n_elements * sizeof(TFloat);
+            size_t space      = (n_elements + n_padding) * sizeof(TFloat);
+            std::unique_ptr<TFloat[]> vec_ptr = std::make_unique<TFloat[]>(n_elements + n_padding);
+
+            void *ptr = reinterpret_cast<void*>(vec_ptr.get());
+            if (std::align(alignment, size, ptr, space)) {
+                return std::make_pair(std::move(vec_ptr), reinterpret_cast<TFloat*>(ptr));
+            } else {
+                throw std::runtime_error("Couldn't allocate matrix.");
+            }
+            return std::make_pair(nullptr, nullptr);
+        }
+
+    template <typename T>
+    void copy_matrix_padded(TFloat * dest, const T *src, size_t m) {
+        for (size_t i = 0; i < m; i++) {
+            for (size_t j = 0; j < row_padding; j++) {
+                if (j < n_) {
+                    dest[i * row_padding + j] = src[i * n_ + j];
+                } else {
+                    dest[i * row_padding + j] = 0.0;
+                }
+            }
+        }
+    }
+
+    template <typename T>
+    void copy_vector(TFloat * dest, const T *src, size_t m) {
+        for (size_t i = 0; i < m; i++) {
+            dest[i] = src[i];
+        }
+    }
+
+    #pragma omp declare simd
+    TFloat scaled_dot(TFloat y1, TFloat y2, TFloat s)
+    {
+        TFloat dy = y1 - y2;
+        return dy * dy * s;
+    }
+
     inline size_t get_bin(TFloat x, TFloat hist_min, TFloat d_hist);
     size_t m_, n_;
-    TFloat *Y_, *x_, *s_;
+
+    // Unique_ptr for memory management.
+    std::unique_ptr<TFloat[]> Y_ptr_, x_ptr_, s_inv_ptr_;
+    // Aligned arrays.
+    TFloat *Y_, *x_, *s_inv_;
 
     TFloat hist_min_, hist_max_;
 };
 
-template <typename TFloat>
-size_t BMCI<TFloat>::get_bin(TFloat x, TFloat hist_min, TFloat d_hist)
+// Static Members
+// template <typename TFloat, template<typename> class TMem>
+// size_t BMCI<TFloat, TMem>::alignment = TMem<TFloat>::alignment;
+
+// template <typename TFloat, template<typename> class TMem>
+// size_t BMCI<TFloat, TMem>::array_padding = TMem<TFloat>::array_padding;
+
+// template <typename TFloat, template<typename> class TMem>
+// size_t BMCI<TFloat, TMem>::s_padding = TMem<TFloat>::padding / sizeof(TFloat);
+
+// Member Functions
+template <typename TFloat, template<typename> class TMem>
+size_t BMCI<TFloat, TMem>::get_bin(TFloat x, TFloat hist_min, TFloat d_hist)
 {
     if (x == 0.0) {
         return 0;
@@ -65,38 +175,68 @@ size_t BMCI<TFloat>::get_bin(TFloat x, TFloat hist_min, TFloat d_hist)
     }
 }
 
-template <typename TFloat>
-void BMCI<TFloat>::expectation(TFloat *x_hat, const TFloat *Y, size_t m)
+template <typename TFloat, template<typename> class TMem>
+template<typename T>
+void BMCI<TFloat, TMem>::expectation(TFloat *x_hat, const T *Y, size_t m)
 {
-    TFloat *dY = new TFloat[n_];
-    size_t Y_i_ind(0);
+    TFloat *dY    = new TFloat[n_];
+    TFloat *p_sum = new TFloat[m];
+    std::unique_ptr<TFloat[]> Y_t_ptr(nullptr);
+    TFloat *Y_t(nullptr);
+
+    // Copy input data to aligned array.
+    std::tie(Y_t_ptr, Y_t) = allocate_matrix_aligned(m, n_, alignment, row_padding);
+    copy_matrix_padded(Y_t, Y, m);
+
+    // Initialize x_hat and p_sum
     for (size_t i = 0; i < m; i++) {
         x_hat[i] = 0.0;
-        TFloat p_sum(0.0);
-        size_t Y_j_ind(0);
-        for (size_t j = 0; j < m_; j++) {
+        p_sum[i] = 0.0;
+    }
+
+
+    // Outer loop over database entries.
+    size_t sim_ind(0);
+    for (size_t i = 0; i < m_; ++i) {
+        // Inner loop over measurements.
+        size_t meas_ind(0);
+        for (size_t j = 0; j < m; ++j) {
+            TFloat *Y_sim  = Y_ + sim_ind;
+            TFloat *Y_meas = Y_t + meas_ind;
             TFloat p(0.0), dy(0.0), dySdy(0.0);
-            for (size_t k = 0; k < n_; k++) {
-                dy = Y_[Y_j_ind + k] - Y[Y_i_ind + k];
-                dySdy += dy * dy / s_[k];
+            #pragma omp simd safelen(row_padding) aligned(Y_sim, Y_meas)
+            for (size_t k = 0; k < row_padding; ++k) {
+                TFloat t = scaled_dot(Y_sim[k], Y_meas[k], s_inv_[k]);
+                dySdy += t;
             }
             p = exp(-dySdy);
-            p_sum += p;
-            x_hat[i] += p * x_[j];
-            Y_j_ind += n_;
+            p_sum[j] += p;
+            x_hat[j] += p * x_[i];
+            meas_ind += row_padding;
         }
-        x_hat[i] /= p_sum;
-        Y_i_ind += n_;
+        sim_ind += row_padding;
+    }
+
+    // Normalize by p_sum.
+    for (size_t i = 0; i < m; i++) {
+        x_hat[i] /= p_sum[i];
     }
 }
 
-template <typename TFloat>
-void BMCI<TFloat>::pdf(TFloat *x_hat, TFloat *hist, const TFloat *Y, size_t m, size_t n_bins)
+template <typename TFloat, template<typename> class TMem>
+template <typename T>
+void BMCI<TFloat, TMem>::pdf(TFloat *x_hat, TFloat *hist, const T *Y, size_t m, size_t n_bins)
 {
     TFloat *dY = new TFloat[n_];
     TFloat hist_min_log = log(hist_min_);
     TFloat d_hist = (log(hist_max_) - hist_min_log) / (n_bins - 1);
     size_t Y_i_ind(0), hist_ind(0);
+    std::unique_ptr<TFloat[]> Y_t_ptr(nullptr);
+    TFloat *Y_t(nullptr);
+
+    // Copy input data to aligned array.
+    std::tie(Y_t_ptr, Y_t) = allocate_matrix_aligned(m, n_, alignment, row_padding);
+    copy_matrix_padded(Y_t, Y, m);
 
     for (size_t i = 0; i < m; i++) {
         x_hat[i] = 0.0;
@@ -105,13 +245,13 @@ void BMCI<TFloat>::pdf(TFloat *x_hat, TFloat *hist, const TFloat *Y, size_t m, s
         for (size_t j = 0; j < m_; j++) {
             TFloat p(0.0), dy(0.0), dySdy(0.0);
             for (size_t k = 0; k < n_; k++) {
-                dy = Y_[Y_j_ind + k] - Y[Y_i_ind + k];
-                dySdy += dy * dy / s_[k];
+                dy = Y_[Y_j_ind + k] - Y_t[Y_i_ind + k];
+                dySdy += dy * dy * s_inv_[k];
             }
             p = exp(-dySdy);
             p_sum += p;
             x_hat[i] += p * x_[j];
-            Y_j_ind += n_;
+            Y_j_ind += row_padding;
 
             // Add p to histogram bin.
             TFloat x_log = (x_[j] == 0.0) ? 0.0 : log(x_[j]);
@@ -119,7 +259,7 @@ void BMCI<TFloat>::pdf(TFloat *x_hat, TFloat *hist, const TFloat *Y, size_t m, s
 
         }
         x_hat[i] /= p_sum;
-        Y_i_ind += n_;
+        Y_i_ind += row_padding;
         hist_ind += n_bins;
     }
 }
