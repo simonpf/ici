@@ -5,6 +5,10 @@
 #include <algorithm>
 #include <memory>
 
+
+#include <immintrin.h>
+#include <x86intrin.h>
+
 template <typename T>
 struct mem_traits {
     static constexpr size_t padding   = 768;
@@ -26,6 +30,202 @@ struct mem_traits<float> {
     static constexpr size_t alignment = 32;
     static constexpr size_t array_padding = 2 * (alignment / sizeof(float)) + 1;
 };
+////////////////////////////////////////////////////////////////////////////////
+// Vectorized Functions
+////////////////////////////////////////////////////////////////////////////////
+
+typedef float  v8f __attribute__ ((vector_size (32)));
+typedef double v4d __attribute__ ((vector_size (32)));
+
+enum class InstructionSet {AVX2};
+
+template<typename TFloat, InstructionSet = InstructionSet::AVX2>
+TFloat scaled_dot_product_primitive(TFloat *y_1, TFloat *y_2, TFloat *s);
+
+template <>
+double scaled_dot_product_primitive(double *y_1, double *y_2, double *s)
+{
+    v4d *y_1_v = reinterpret_cast<v4d*>(y_1);
+    v4d *y_2_v = reinterpret_cast<v4d*>(y_2);
+    v4d *s_v   = reinterpret_cast<v4d*>(s);
+    v4d dy, dy_p;
+    dy   = __builtin_ia32_subpd256(*y_1_v, *y_2_v);
+    dy   = __builtin_ia32_mulpd256(dy, dy);
+    dy   = __builtin_ia32_mulpd256(dy, *s_v);
+    dy_p = __builtin_ia32_vperm2f128_pd256(dy, dy, 1);
+    dy   = __builtin_ia32_addpd256(dy_p, dy);
+    dy   = __builtin_ia32_haddpd256(dy, dy);
+    return reinterpret_cast<double*>(&dy)[0];
+}
+
+template <>
+float scaled_dot_product_primitive(float *y_1, float *y_2, float *s)
+{
+    v8f *y_1_v = reinterpret_cast<v8f*>(y_1);
+    v8f *y_2_v = reinterpret_cast<v8f*>(y_2);
+    v8f *s_v   = reinterpret_cast<v8f*>(s);
+    v8f dy, dy_p;
+    dy   = __builtin_ia32_subps256(*y_1_v, *y_2_v);
+    dy   = __builtin_ia32_mulps256(dy, dy);
+    dy   = __builtin_ia32_mulps256(dy, *s_v);
+    dy_p = __builtin_ia32_vperm2f128_ps256(dy, dy, 1);
+    dy   = __builtin_ia32_addps256(dy_p, dy);
+    dy   = __builtin_ia32_haddps256(dy, dy);
+    dy   = __builtin_ia32_haddps256(dy, dy);
+    return reinterpret_cast<float*>(&dy)[0];
+}
+
+template<typename TFloat, size_t l>
+TFloat scaled_dot_product(TFloat *y_1, TFloat *y_2, TFloat *s)
+{
+    constexpr size_t block_size = 32 / sizeof(TFloat);
+
+    TFloat result = 0.0;
+    for (size_t i = 0; i < l; i+=block_size) {
+        result = scaled_dot_product_primitive<TFloat>(y_1, y_2, s);
+    }
+    return result;
+}
+
+template<typename TFloat, InstructionSet = InstructionSet::AVX2>
+TFloat exponential(TFloat *x);
+
+template<>
+float exponential<float, InstructionSet::AVX2>(float *x)
+{
+    v8f *x_v = reinterpret_cast<v8f*>(x);
+    x_v = _mm256_exp_ps(x);
+}
+
+template<>
+double exponential<double, InstructionSet::AVX2>(double *x)
+{
+    v4d *x_v = reinterpret_cast<v4d*>(x);
+    x_v = _mm256_exp_pd(x);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Aligned Array
+////////////////////////////////////////////////////////////////////////////////
+template <typename TFloat, size_t alignment>
+class AlignedArray {
+public:
+    AlignedArray() = default;
+    AlignedArray(size_t size)
+        : data_(nullptr), data_ptr_(nullptr)
+    {
+        size_t space = size + alignment / sizeof(TFloat) + 1;
+        data_ptr_ = std::make_unique<TFloat[]>(space);
+        data_ = data_ptr_.get();
+        void *ptr = static_cast<void*>(data_);
+        if (std::align(alignment, size, ptr, space)) {
+            data_ = static_cast<TFloat*>(ptr);
+        } else {
+            throw std::runtime_error("Couldn't alig storage.");
+        }
+    }
+    AlignedArray(const AlignedArray &)  = delete;
+    AlignedArray(      AlignedArray &&) = default;
+    AlignedArray & operator=(const AlignedArray &)  = delete;
+    AlignedArray & operator=(      AlignedArray &&) = default;
+    ~AlignedArray() = default;
+
+    TFloat & operator[](size_t i )       {return data_[i];}
+    TFloat   operator[](size_t i ) const {return data_[i];}
+
+private:
+    std::unique_ptr<TFloat[]> data_ptr_;
+    TFloat *data_;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// Padded Matrix
+////////////////////////////////////////////////////////////////////////////////
+template <typename TFloat, size_t row_block_size, size_t col_block_size, size_t alignment>
+class PaddedMatrix {
+public:
+    PaddedMatrix(size_t m, size_t n)
+        : m_(m), n_(n), data_()
+    {
+        n_row_blocks_ = (n_ / row_block_size);
+        if ((n % row_block_size) != 0) {
+            ++n_row_blocks_;
+        }
+        n_col_blocks_ = (m_ / col_block_size);
+        if ((m % col_block_size) != 0) {
+            ++n_col_blocks_;
+        }
+        size_t size = n_row_blocks_ * row_block_size * n_col_blocks_ * col_block_size;
+        data_ = AlignedArray<TFloat, alignment>(size);
+        row_length_ = n_row_blocks_ * row_block_size;
+    }
+    PaddedMatrix(const PaddedMatrix &)  = delete;
+    PaddedMatrix(      PaddedMatrix &&) = default;
+    PaddedMatrix & operator=(const PaddedMatrix &)  = delete;
+    PaddedMatrix & operator=(      PaddedMatrix &&) = default;
+    ~PaddedMatrix() = default;
+
+    TFloat & operator()(size_t i, size_t j)       {return data_[i * row_length_ + j];}
+    TFloat   operator()(size_t i, size_t j) const {return data_[i * row_length_ + j];}
+
+    template<typename T>
+    void copy(const T *src) {
+        for (size_t i = 0; i < n_col_blocks_ * col_block_size; ++i) {
+            for (size_t j = 0; j < n_row_blocks_ * row_block_size; ++j) {
+                if ((i < m_) && (j < n_)) {
+                    this->operator()(i,j) = src[i * n_ + j];
+                } else {
+                    this->operator()(i,j) = 0.0;
+                }
+            }
+        }
+    }
+
+private:
+    size_t m_, n_, n_row_blocks_, n_col_blocks_, row_length_;
+    AlignedArray<TFloat, alignment> data_;
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// Padded Vector
+////////////////////////////////////////////////////////////////////////////////
+template <typename TFloat, size_t block_size, size_t alignment>
+struct PaddedVector {
+public:
+    PaddedVector(size_t m)
+        : m_(m), data_()
+    {
+        n_blocks_ = (m / block_size);
+        if ((m_ % block_size) != 0) {
+            ++n_blocks_;
+        }
+        size_t size = n_blocks_ * block_size;
+        data_ = AlignedArray<TFloat, alignment>(size);
+    }
+    PaddedVector(const PaddedVector &)  = delete;
+    PaddedVector(      PaddedVector &&) = default;
+    PaddedVector & operator=(const PaddedVector &)  = delete;
+    PaddedVector & operator=(      PaddedVector &&) = delete;
+    ~PaddedVector() = default;
+
+    TFloat & operator[](size_t i)       {return data_[i];}
+    TFloat   operator[](size_t i) const {return data_[i];}
+
+    template<typename T>
+    void copy(const T *src) {
+        for (size_t i = 0; i < n_blocks_ * block_size; ++i) {
+            if (i < m_) {
+                data_[i] = src[i];
+            } else {
+                data_[i] = 0.0;
+            }
+        }
+    }
+
+private:
+    size_t m_, n_blocks_;
+    AlignedArray<TFloat, alignment> data_;
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 // The BMCI Class
@@ -40,17 +240,12 @@ class BMCI {
 
 public:
     BMCI(const double *Y, const double *x, const double *s, size_t m, size_t n)
-        : m_(m), n_(n), hist_min_(std::numeric_limits<TFloat>::max()), hist_max_(0.0)
+        : m_(m), n_(n), hist_min_(std::numeric_limits<TFloat>::max()), hist_max_(0.0), Y_(m,n), x_(m), s_inv_(n)
     {
-        // Aligned Memory
-        std::tie(Y_ptr_, Y_)         = allocate_matrix_aligned(m, n, alignment, row_padding);
-        std::tie(x_ptr_, x_)         = allocate_vector_aligned(m, alignment);
-        std::tie(s_inv_ptr_, s_inv_) = allocate_matrix_aligned(1, n, alignment, row_padding);
-
         // Copy Data
-        copy_matrix_padded(Y_, Y, m);
-        copy_matrix_padded(s_inv_, s, 1);
-        copy_vector(x_, x, m);
+        Y_.copy(Y);
+        s_inv_.copy(s);
+        x_.copy(x);
 
         for (size_t i = 0; i < n; ++i) {
             s_inv_[i] = static_cast<TFloat>(1.0 / s[i]);
@@ -81,60 +276,6 @@ public:
 
 private:
 
-    std::pair<std::unique_ptr<TFloat[]>, TFloat*> allocate_matrix_aligned(size_t m, size_t n, size_t alignment, size_t row_padding)
-    {
-        size_t n_elements = m * row_padding;
-        size_t n_padding  = std::max<size_t>(alignment / sizeof(TFloat), 1);
-        size_t size       = n_elements * sizeof(TFloat);
-        size_t space      = (n_elements + n_padding) * sizeof(TFloat);
-        std::unique_ptr<TFloat[]> mat_ptr = std::make_unique<TFloat[]>(n_elements + n_padding);
-
-        void *ptr = reinterpret_cast<void*>(mat_ptr.get());
-        if (std::align(alignment, size, ptr, space)) {
-            return std::make_pair(std::move(mat_ptr), reinterpret_cast<TFloat*>(ptr));
-        } else {
-            throw std::runtime_error("Couldn't allocate matrix.");
-        }
-        return std::make_pair(nullptr, nullptr);
-    }
-
-    std::pair<std::unique_ptr<TFloat[]>, TFloat*> allocate_vector_aligned(size_t m, size_t alignment)
-        {
-            size_t n_elements = m;
-            size_t n_padding  = std::max<size_t>(alignment / sizeof(TFloat), 1);
-            size_t size       = n_elements * sizeof(TFloat);
-            size_t space      = (n_elements + n_padding) * sizeof(TFloat);
-            std::unique_ptr<TFloat[]> vec_ptr = std::make_unique<TFloat[]>(n_elements + n_padding);
-
-            void *ptr = reinterpret_cast<void*>(vec_ptr.get());
-            if (std::align(alignment, size, ptr, space)) {
-                return std::make_pair(std::move(vec_ptr), reinterpret_cast<TFloat*>(ptr));
-            } else {
-                throw std::runtime_error("Couldn't allocate matrix.");
-            }
-            return std::make_pair(nullptr, nullptr);
-        }
-
-    template <typename T>
-    void copy_matrix_padded(TFloat * dest, const T *src, size_t m) {
-        for (size_t i = 0; i < m; i++) {
-            for (size_t j = 0; j < row_padding; j++) {
-                if (j < n_) {
-                    dest[i * row_padding + j] = src[i * n_ + j];
-                } else {
-                    dest[i * row_padding + j] = 0.0;
-                }
-            }
-        }
-    }
-
-    template <typename T>
-    void copy_vector(TFloat * dest, const T *src, size_t m) {
-        for (size_t i = 0; i < m; i++) {
-            dest[i] = src[i];
-        }
-    }
-
     #pragma omp declare simd
     TFloat scaled_dot(TFloat y1, TFloat y2, TFloat s)
     {
@@ -145,10 +286,9 @@ private:
     inline size_t get_bin(TFloat x, TFloat hist_min, TFloat d_hist);
     size_t m_, n_;
 
-    // Unique_ptr for memory management.
-    std::unique_ptr<TFloat[]> Y_ptr_, x_ptr_, s_inv_ptr_;
-    // Aligned arrays.
-    TFloat *Y_, *x_, *s_inv_;
+    PaddedMatrix<TFloat, 1, 1, alignment> Y_;
+    PaddedVector<TFloat, 1, alignment> s_inv_;
+    PaddedVector<TFloat, 1, alignment> x_;
 
     TFloat hist_min_, hist_max_;
 };
@@ -179,14 +319,20 @@ template <typename TFloat, template<typename> class TMem>
 template<typename T>
 void BMCI<TFloat, TMem>::expectation(TFloat *x_hat, const T *Y, size_t m)
 {
-    TFloat *dY    = new TFloat[n_];
-    TFloat *p_sum = new TFloat[m];
-    std::unique_ptr<TFloat[]> Y_t_ptr(nullptr);
-    TFloat *Y_t(nullptr);
+    constexpr size_t meas_block_size = 4;
+    constexpr size_t sim_block_size = 4;
 
-    // Copy input data to aligned array.
-    std::tie(Y_t_ptr, Y_t) = allocate_matrix_aligned(m, n_, alignment, row_padding);
-    copy_matrix_padded(Y_t, Y, m);
+    size_t n_meas_blocks = m_ / meas_block_size;
+    size_t n_sim_blocks  = m  / sim_block_size;
+    size_t rem_meas_blocks = m_ % meas_block_size;
+    size_t rem_sim_blocks  = m  % sim_block_size;
+
+    PaddedMatrix<TFloat, 1, 12, alignment> Y_t(m, n_);
+    PaddedMatrix<TFloat, 1, 1, alignment>   p(meas_block_size, m);
+    PaddedVector<TFloat, 1, alignment>     p_sum(m);
+    PaddedVector<TFloat, 1, alignment>     px(m);
+
+    Y_t.copy(Y);
 
     // Initialize x_hat and p_sum
     for (size_t i = 0; i < m; i++) {
@@ -194,20 +340,25 @@ void BMCI<TFloat, TMem>::expectation(TFloat *x_hat, const T *Y, size_t m)
         p_sum[i] = 0.0;
     }
 
+    for (size_t ind_sim_blocks = 0; ind_sim_blocks < n_sim_blocks; ++ind_sim_blocks) {
+        // Compute arguments to exp.
+        for (size_t ind_meas_blocks = 0; ind_meas_blocks < n_meas_blocks; ++ind_meas_blocks) {
+            
+        }
+    }
 
+    
     // Outer loop over database entries.
     size_t sim_ind(0);
     for (size_t i = 0; i < m_; ++i) {
         // Inner loop over measurements.
         size_t meas_ind(0);
         for (size_t j = 0; j < m; ++j) {
-            TFloat *Y_sim  = Y_ + sim_ind;
-            TFloat *Y_meas = Y_t + meas_ind;
             TFloat p(0.0), dy(0.0), dySdy(0.0);
-            #pragma omp simd safelen(row_padding) aligned(Y_sim, Y_meas)
-            for (size_t k = 0; k < row_padding; ++k) {
-                TFloat t = scaled_dot(Y_sim[k], Y_meas[k], s_inv_[k]);
-                dySdy += t;
+            #pragma omp simd safelen(row_padding)
+            for (size_t k = 0; k < n_; ++k) {
+                dy = Y_(i, k) - Y_t(j, k);
+                dySdy += dy * dy * s_inv_[k];
             }
             p = exp(-dySdy);
             p_sum[j] += p;
@@ -231,12 +382,8 @@ void BMCI<TFloat, TMem>::pdf(TFloat *x_hat, TFloat *hist, const T *Y, size_t m, 
     TFloat hist_min_log = log(hist_min_);
     TFloat d_hist = (log(hist_max_) - hist_min_log) / (n_bins - 1);
     size_t Y_i_ind(0), hist_ind(0);
-    std::unique_ptr<TFloat[]> Y_t_ptr(nullptr);
-    TFloat *Y_t(nullptr);
 
-    // Copy input data to aligned array.
-    std::tie(Y_t_ptr, Y_t) = allocate_matrix_aligned(m, n_, alignment, row_padding);
-    copy_matrix_padded(Y_t, Y, m);
+    PaddedMatrix<TFloat, 1, 12, alignment> Y_t(m, n_);
 
     for (size_t i = 0; i < m; i++) {
         x_hat[i] = 0.0;
@@ -245,7 +392,7 @@ void BMCI<TFloat, TMem>::pdf(TFloat *x_hat, TFloat *hist, const T *Y, size_t m, 
         for (size_t j = 0; j < m_; j++) {
             TFloat p(0.0), dy(0.0), dySdy(0.0);
             for (size_t k = 0; k < n_; k++) {
-                dy = Y_[Y_j_ind + k] - Y_t[Y_i_ind + k];
+                dy = Y_(j, k) - Y_t(i, k);
                 dySdy += dy * dy * s_inv_[k];
             }
             p = exp(-dySdy);
@@ -275,6 +422,51 @@ extern "C" {
 
     BMCI<float>  *bmci_float;
     BMCI<double> *bmci_double;
+
+    static PyObject *
+    vec_exp(PyObject *self, PyObject *args)
+    {
+        PyObject *x_array;
+
+        if (!PyArg_ParseTuple(args, "OOO", &x_array)) {
+            return NULL;
+        }
+
+        if (PyArray_TYPE(x_array) == NPY_FLOAT32) {
+            exponential(static_cast<float*>(PyArray_DATA(x_array)));
+        } else {
+            exponential(static_cast<double*>(PyArray_DATA(x_array)));
+        }
+        return x;
+    }
+
+    static PyObject *
+    vec_scaled_dot(PyObject *self, PyObject *args)
+    {
+        PyObject *y_1_array, *y_2_array, *s_array;
+
+        if (!PyArg_ParseTuple(args, "OOO", &y_1_array, &y_2_array, &s_array)) {
+            return NULL;
+        }
+
+        std::cout << "shoot" << std::endl;
+        PyObject *x;
+        if (PyArray_TYPE(y_1_array) == NPY_FLOAT32) {
+            npy_intp dim = 1;
+            x = PyArray_SimpleNew(1, &dim, NPY_FLOAT32);
+            *static_cast<float*>(PyArray_DATA(x)) = scaled_dot_product<float, 16>(static_cast<float*>(PyArray_DATA(y_1_array)),
+                                                                                  static_cast<float*>(PyArray_DATA(y_2_array)),
+                                                                                  static_cast<float*>(PyArray_DATA(s_array)));
+        } else {
+            npy_intp dim = 1;
+            x = PyArray_SimpleNew(1, &dim, NPY_FLOAT64);
+            *static_cast<double*>(PyArray_DATA(x)) = scaled_dot_product<double, 16>(static_cast<double*>(PyArray_DATA(y_1_array)),
+                                                                                   static_cast<double*>(PyArray_DATA(y_2_array)),
+                                                                                   static_cast<double*>(PyArray_DATA(s_array)));
+        }
+        std::cout << "dead" << std::endl;
+        return x;
+    }
 
     static PyObject *
     bmci_initialize(PyObject *self, PyObject *args)
@@ -410,6 +602,8 @@ extern "C" {
     }
 
     static PyMethodDef methods[] = {
+        {"vec_exp",  vec_exp, METH_VARARGS, "Vectorized implementation of the exponential function."},
+        {"vec_scaled_dot",  vec_scaled_dot, METH_VARARGS, "Vectorized implementation of scaled dot product."},
         {"bmci_initialize",  bmci_initialize, METH_VARARGS, "Initialize bmci object."},
         {"bmci_finalize",  bmci_finalize, METH_NOARGS, "Finalize bmci object."},
         {"bmci_expectation",  bmci_expectation, METH_VARARGS, "Compute expectation value of the retrieval using BMCI"},
