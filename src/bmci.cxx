@@ -6,7 +6,6 @@
 #include <memory>
 
 
-#include <immintrin.h>
 #include <x86intrin.h>
 
 template <typename T>
@@ -88,20 +87,64 @@ TFloat scaled_dot_product(TFloat *y_1, TFloat *y_2, TFloat *s)
 }
 
 template<typename TFloat, InstructionSet = InstructionSet::AVX2>
-TFloat exponential(TFloat *x);
+TFloat negexp(TFloat *x);
 
 template<>
-float exponential<float, InstructionSet::AVX2>(float *x)
+float negexp<float, InstructionSet::AVX2>(float *x)
 {
-    v8f *x_v = reinterpret_cast<v8f*>(x);
-    x_v = _mm256_exp_ps(x);
+    float c = .00097656250;
+
+    v8f x_v  = _mm256_load_ps(x);
+    v8f c_v  = _mm256_set1_ps(25.0);
+    v8f mask = __builtin_ia32_cmpps256 (x_v, c_v, _CMP_LT_OS);
+    c_v      = _mm256_set1_ps(-c);
+    v8f one  = _mm256_set1_ps(1.0);
+    x_v     = __builtin_ia32_vfmaddps256(x_v, c_v, one);
+
+    c_v      = _mm256_set1_ps(0.0);
+    x_v     = __builtin_ia32_blendvps256(x_v, c_v, mask);
+
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+
+    _mm256_store_ps(x, x_v);
 }
 
 template<>
-double exponential<double, InstructionSet::AVX2>(double *x)
+double negexp<double, InstructionSet::AVX2>(double *x)
 {
-    v4d *x_v = reinterpret_cast<v4d*>(x);
-    x_v = _mm256_exp_pd(x);
+    double c = .00097656250;
+
+    v4d x_v  = _mm256_load_pd(x);
+    v4d c_v  = _mm256_set1_pd(25.0);
+    v4d mask = __builtin_ia32_cmppd256(x_v, c_v, _CMP_LT_OS);
+    c_v      = _mm256_set1_pd(-c);
+    v4d one  = _mm256_set1_pd(1.0);
+    x_v     = __builtin_ia32_vfmaddpd256(x_v, c_v, one);
+
+    c_v      = _mm256_set1_pd(0.0);
+    x_v     = __builtin_ia32_blendvpd256(c_v, x_v, mask);
+
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+
+    _mm256_store_pd(x, x_v);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -114,14 +157,19 @@ public:
     AlignedArray(size_t size)
         : data_(nullptr), data_ptr_(nullptr)
     {
-        size_t space = size + alignment / sizeof(TFloat) + 1;
+        size_t space = size + alignment / sizeof(TFloat);
+        if (alignment % sizeof(TFloat) != 0) {
+            ++space;
+        }
+        size_t space_in_bytes = space * sizeof(TFloat);
+        size_t size_in_bytes  = size * sizeof(TFloat);
         data_ptr_ = std::make_unique<TFloat[]>(space);
         data_ = data_ptr_.get();
         void *ptr = static_cast<void*>(data_);
-        if (std::align(alignment, size, ptr, space)) {
+        if (std::align(alignment, size_in_bytes, ptr, space_in_bytes)) {
             data_ = static_cast<TFloat*>(ptr);
         } else {
-            throw std::runtime_error("Couldn't alig storage.");
+            throw std::runtime_error("Couldn't align storage.");
         }
     }
     AlignedArray(const AlignedArray &)  = delete;
@@ -132,6 +180,9 @@ public:
 
     TFloat & operator[](size_t i )       {return data_[i];}
     TFloat   operator[](size_t i ) const {return data_[i];}
+
+    TFloat       * get()       {return data_;}
+    const TFloat * get() const {return data_;}
 
 private:
     std::unique_ptr<TFloat[]> data_ptr_;
@@ -424,19 +475,43 @@ extern "C" {
     BMCI<double> *bmci_double;
 
     static PyObject *
-    vec_exp(PyObject *self, PyObject *args)
+    vec_negexp(PyObject *self, PyObject *args)
     {
         PyObject *x_array;
 
-        if (!PyArg_ParseTuple(args, "OOO", &x_array)) {
+        if (!PyArg_ParseTuple(args, "O", &x_array)) {
             return NULL;
         }
 
+        PyObject *x;
         if (PyArray_TYPE(x_array) == NPY_FLOAT32) {
-            exponential(static_cast<float*>(PyArray_DATA(x_array)));
+            npy_intp dim = 8;
+            AlignedArray<float, 32> data(8);
+            float *x_ptr = static_cast<float*>(PyArray_DATA(x_array));
+            for (size_t i = 0; i < dim; ++i) {
+                data[i] = x_ptr[i];
+            }
+            negexp(data.get());
+            x = PyArray_SimpleNew(1, &dim, NPY_FLOAT32);
+            x_ptr = static_cast<float*>(PyArray_DATA(x));
+            for (size_t i = 0; i < dim; ++i) {
+                x_ptr[i] = data[i];
+            }
         } else {
-            exponential(static_cast<double*>(PyArray_DATA(x_array)));
+            npy_intp dim = 4;
+            AlignedArray<double, 32> data(4);
+            double *x_ptr = static_cast<double*>(PyArray_DATA(x_array));
+            for (size_t i = 0; i < dim; ++i) {
+                data[i] = x_ptr[i];
+            }
+            negexp(data.get());
+            x = PyArray_SimpleNew(1, &dim, NPY_FLOAT64);
+            x_ptr = static_cast<double*>(PyArray_DATA(x));
+            for (size_t i = 0; i < dim; ++i) {
+                x_ptr[i] = data[i];
+            }
         }
+
         return x;
     }
 
@@ -449,7 +524,6 @@ extern "C" {
             return NULL;
         }
 
-        std::cout << "shoot" << std::endl;
         PyObject *x;
         if (PyArray_TYPE(y_1_array) == NPY_FLOAT32) {
             npy_intp dim = 1;
@@ -464,7 +538,6 @@ extern "C" {
                                                                                    static_cast<double*>(PyArray_DATA(y_2_array)),
                                                                                    static_cast<double*>(PyArray_DATA(s_array)));
         }
-        std::cout << "dead" << std::endl;
         return x;
     }
 
@@ -602,7 +675,7 @@ extern "C" {
     }
 
     static PyMethodDef methods[] = {
-        {"vec_exp",  vec_exp, METH_VARARGS, "Vectorized implementation of the exponential function."},
+        {"vec_negexp",  vec_negexp, METH_VARARGS, "Vectorized implementation of the exponential function."},
         {"vec_scaled_dot",  vec_scaled_dot, METH_VARARGS, "Vectorized implementation of scaled dot product."},
         {"bmci_initialize",  bmci_initialize, METH_VARARGS, "Initialize bmci object."},
         {"bmci_finalize",  bmci_finalize, METH_NOARGS, "Finalize bmci object."},
