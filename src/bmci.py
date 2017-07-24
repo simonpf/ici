@@ -69,7 +69,7 @@ class BMCI:
             dY = self.Y - Y[i,:]
             p  = np.exp(-np.sum(dY * dY / self.s, axis=1, keepdims=True))
             pdfs[i,0]    = p[zero_inds].sum()
-            pdfs[i,1:], _ = np.histogram(np.log(self.x[non_zero_inds]), bins=edges, weights=p[non_zero_inds])
+            pdfs[i,1:], _ = np.histogram(np.log(self.x[non_zero_inds]), bins=edges, weights=p[non_zero_inds], density=True)
 
         return pdfs, edges
 

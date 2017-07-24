@@ -200,6 +200,10 @@
 \exp \left \{ - (\vec{y} - \bar{\vec{y}_j}) \mathbf{S}^{-1} (\vec{y} - \bar{\vec{y}}_j) \right \}
     \end{align}
 
+* PCA & BMCI
+  Dimensionality reduction may help BMCI method to obtain better coverage in measurement-state space. A first approach would
+  by to use only 8 PCA components to compress the data.
+ wl
 * Paper Notes
 ** A Hotelling Transformation Approach for Rapid Inversion of Atmospheric Data
    Investigates data reduction techniques based on eigenvector expansions (/hotelling transformations/).
@@ -234,3 +238,4 @@
     The newly proposed methods performs comparable to the method based on $\mat{S}_\vec{y}$ for noise-free data. Otherwise
     it performs even better. Also provides the possibility of improving the reduction for specific species.
 ** Structured Probabilistic Models
+   

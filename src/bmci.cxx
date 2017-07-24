@@ -44,13 +44,13 @@ TFloat scaled_dot_product_primitive(TFloat *y_1, TFloat *y_2, TFloat *s);
 template <>
 double scaled_dot_product_primitive(double *y_1, double *y_2, double *s)
 {
-    v4d *y_1_v = reinterpret_cast<v4d*>(y_1);
-    v4d *y_2_v = reinterpret_cast<v4d*>(y_2);
-    v4d *s_v   = reinterpret_cast<v4d*>(s);
+    v4d y_1_v = _mm256_load_pd(y_1);
+    v4d y_2_v = _mm256_load_pd(y_2);
+    v4d s_v   = _mm256_load_pd(s);
     v4d dy, dy_p;
-    dy   = __builtin_ia32_subpd256(*y_1_v, *y_2_v);
+    dy   = __builtin_ia32_subpd256(y_1_v, y_2_v);
     dy   = __builtin_ia32_mulpd256(dy, dy);
-    dy   = __builtin_ia32_mulpd256(dy, *s_v);
+    dy   = __builtin_ia32_mulpd256(dy, s_v);
     dy_p = __builtin_ia32_vperm2f128_pd256(dy, dy, 1);
     dy   = __builtin_ia32_addpd256(dy_p, dy);
     dy   = __builtin_ia32_haddpd256(dy, dy);
@@ -60,13 +60,13 @@ double scaled_dot_product_primitive(double *y_1, double *y_2, double *s)
 template <>
 float scaled_dot_product_primitive(float *y_1, float *y_2, float *s)
 {
-    v8f *y_1_v = reinterpret_cast<v8f*>(y_1);
-    v8f *y_2_v = reinterpret_cast<v8f*>(y_2);
-    v8f *s_v   = reinterpret_cast<v8f*>(s);
+    v8f y_1_v = _mm256_load_ps(y_1);
+    v8f y_2_v = _mm256_load_ps(y_2);
+    v8f s_v   = _mm256_load_ps(s);
     v8f dy, dy_p;
-    dy   = __builtin_ia32_subps256(*y_1_v, *y_2_v);
+    dy   = __builtin_ia32_subps256(y_1_v, y_2_v);
     dy   = __builtin_ia32_mulps256(dy, dy);
-    dy   = __builtin_ia32_mulps256(dy, *s_v);
+    dy   = __builtin_ia32_mulps256(dy, s_v);
     dy_p = __builtin_ia32_vperm2f128_ps256(dy, dy, 1);
     dy   = __builtin_ia32_addps256(dy_p, dy);
     dy   = __builtin_ia32_haddps256(dy, dy);
@@ -81,28 +81,24 @@ TFloat scaled_dot_product(TFloat *y_1, TFloat *y_2, TFloat *s)
 
     TFloat result = 0.0;
     for (size_t i = 0; i < l; i+=block_size) {
-        result = scaled_dot_product_primitive<TFloat>(y_1, y_2, s);
+        result += scaled_dot_product_primitive<TFloat>(y_1 + i, y_2 + i, s + i);
     }
     return result;
 }
 
-template<typename TFloat, InstructionSet = InstructionSet::AVX2>
-TFloat negexp(TFloat *x);
-
-template<>
-float negexp<float, InstructionSet::AVX2>(float *x)
+void negexp(float *x)
 {
     float c = .00097656250;
 
     v8f x_v  = _mm256_load_ps(x);
-    v8f c_v  = _mm256_set1_ps(25.0);
+    v8f c_v  = _mm256_set1_ps(50.0);
     v8f mask = __builtin_ia32_cmpps256 (x_v, c_v, _CMP_LT_OS);
     c_v      = _mm256_set1_ps(-c);
     v8f one  = _mm256_set1_ps(1.0);
     x_v     = __builtin_ia32_vfmaddps256(x_v, c_v, one);
 
     c_v      = _mm256_set1_ps(0.0);
-    x_v     = __builtin_ia32_blendvps256(x_v, c_v, mask);
+    x_v     = __builtin_ia32_blendvps256(c_v, x_v, mask);
 
     x_v     = __builtin_ia32_mulps256(x_v, x_v);
     x_v     = __builtin_ia32_mulps256(x_v, x_v);
@@ -118,13 +114,12 @@ float negexp<float, InstructionSet::AVX2>(float *x)
     _mm256_store_ps(x, x_v);
 }
 
-template<>
-double negexp<double, InstructionSet::AVX2>(double *x)
+void negexp(double *x)
 {
     double c = .00097656250;
 
     v4d x_v  = _mm256_load_pd(x);
-    v4d c_v  = _mm256_set1_pd(25.0);
+    v4d c_v  = _mm256_set1_pd(50.0);
     v4d mask = __builtin_ia32_cmppd256(x_v, c_v, _CMP_LT_OS);
     c_v      = _mm256_set1_pd(-c);
     v4d one  = _mm256_set1_pd(1.0);
@@ -145,6 +140,100 @@ double negexp<double, InstructionSet::AVX2>(double *x)
     x_v     = __builtin_ia32_mulpd256(x_v, x_v);
 
     _mm256_store_pd(x, x_v);
+}
+
+v8f negexp(v8f x_v)
+{
+    float c = .00097656250;
+
+    v8f c_v  = _mm256_set1_ps(50.0);
+    v8f mask = __builtin_ia32_cmpps256 (x_v, c_v, _CMP_LT_OS);
+    c_v      = _mm256_set1_ps(-c);
+    v8f one  = _mm256_set1_ps(1.0);
+    x_v     = __builtin_ia32_vfmaddps256(x_v, c_v, one);
+
+    c_v      = _mm256_set1_ps(0.0);
+    x_v     = __builtin_ia32_blendvps256(c_v, x_v, mask);
+
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+    x_v     = __builtin_ia32_mulps256(x_v, x_v);
+
+    return x_v;
+}
+
+v4d negexp(v4d x_v)
+{
+    double c = .00097656250;
+
+    v4d c_v  = _mm256_set1_pd(50.0);
+    v4d mask = __builtin_ia32_cmppd256(x_v, c_v, _CMP_LT_OS);
+    c_v      = _mm256_set1_pd(-c);
+    v4d one  = _mm256_set1_pd(1.0);
+    x_v     = __builtin_ia32_vfmaddpd256(x_v, c_v, one);
+
+    c_v      = _mm256_set1_pd(0.0);
+    x_v     = __builtin_ia32_blendvpd256(c_v, x_v, mask);
+
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+    x_v     = __builtin_ia32_mulpd256(x_v, x_v);
+
+    return x_v;
+}
+
+void negexp_px_p_(float x, float *y, float *px, float *p)
+{
+    v8f x_v  = _mm256_set1_ps(x);
+    v8f y_v  = _mm256_load_ps(y);
+    v8f p_v  = _mm256_load_ps(p);
+    v8f px_v = _mm256_load_ps(px);
+
+    y_v = negexp(y_v);
+    px_v = __builtin_ia32_vfmaddps256(x_v, y_v, px_v);
+    p_v  = __builtin_ia32_addps256(p_v, y_v);
+
+    _mm256_store_ps(p, p_v);
+    _mm256_store_ps(px, px_v);
+}
+
+void negexp_px_p_(double x, double *y, double *px, double *p)
+{
+    v4d x_v  = _mm256_set1_pd(x);
+    v4d y_v  = _mm256_load_pd(y);
+    v4d p_v  = _mm256_load_pd(p);
+    v4d px_v = _mm256_load_pd(px);
+
+    y_v = negexp(y_v);
+    px_v = __builtin_ia32_vfmaddpd256(x_v, y_v, px_v);
+    p_v  = __builtin_ia32_addpd256(p_v, y_v);
+
+    _mm256_store_pd(p, p_v);
+    _mm256_store_pd(px, px_v);
+}
+
+template<typename TFloat, size_t l>
+TFloat negexp_px_p(TFloat x, TFloat *y, TFloat *px, TFloat *p)
+{
+    constexpr size_t block_size = 32 / sizeof(TFloat);
+
+    for (size_t i = 0; i < l; i+=block_size) {
+        negexp_px_p_(x, y+i, px+i, p+i);
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -192,7 +281,7 @@ private:
 ////////////////////////////////////////////////////////////////////////////////
 // Padded Matrix
 ////////////////////////////////////////////////////////////////////////////////
-template <typename TFloat, size_t row_block_size, size_t col_block_size, size_t alignment>
+template <typename TFloat, size_t col_block_size, size_t row_block_size, size_t alignment>
 class PaddedMatrix {
 public:
     PaddedMatrix(size_t m, size_t n)
@@ -218,6 +307,12 @@ public:
 
     TFloat & operator()(size_t i, size_t j)       {return data_[i * row_length_ + j];}
     TFloat   operator()(size_t i, size_t j) const {return data_[i * row_length_ + j];}
+
+    const TFloat * get() const {return data_.get();}
+          TFloat * get()       {return data_.get();}
+
+    const TFloat * get_row(size_t i) const {return data_.get() + i * row_length_;}
+          TFloat * get_row(size_t i)       {return data_.get() + i * row_length_;}
 
     template<typename T>
     void copy(const T *src) {
@@ -261,6 +356,9 @@ public:
 
     TFloat & operator[](size_t i)       {return data_[i];}
     TFloat   operator[](size_t i) const {return data_[i];}
+
+    const TFloat * get() const {return data_.get();}
+          TFloat * get()       {return data_.get();}
 
     template<typename T>
     void copy(const T *src) {
@@ -337,8 +435,8 @@ private:
     inline size_t get_bin(TFloat x, TFloat hist_min, TFloat d_hist);
     size_t m_, n_;
 
-    PaddedMatrix<TFloat, 1, 1, alignment> Y_;
-    PaddedVector<TFloat, 1, alignment> s_inv_;
+    PaddedMatrix<TFloat, 1, 12, alignment> Y_;
+    PaddedVector<TFloat, 12, alignment> s_inv_;
     PaddedVector<TFloat, 1, alignment> x_;
 
     TFloat hist_min_, hist_max_;
@@ -370,16 +468,14 @@ template <typename TFloat, template<typename> class TMem>
 template<typename T>
 void BMCI<TFloat, TMem>::expectation(TFloat *x_hat, const T *Y, size_t m)
 {
-    constexpr size_t meas_block_size = 4;
-    constexpr size_t sim_block_size = 4;
+    constexpr size_t meas_block_size = 32;
+    constexpr size_t sim_block_size = 32;
 
-    size_t n_meas_blocks = m_ / meas_block_size;
-    size_t n_sim_blocks  = m  / sim_block_size;
-    size_t rem_meas_blocks = m_ % meas_block_size;
-    size_t rem_sim_blocks  = m  % sim_block_size;
+    size_t n_meas_blocks = m_ / sim_block_size;
+    size_t n_sim_blocks  = m  / meas_block_size;
 
     PaddedMatrix<TFloat, 1, 12, alignment> Y_t(m, n_);
-    PaddedMatrix<TFloat, 1, 1, alignment>   p(meas_block_size, m);
+    PaddedMatrix<TFloat, 1, 1, alignment>  p(sim_block_size, m);
     PaddedVector<TFloat, 1, alignment>     p_sum(m);
     PaddedVector<TFloat, 1, alignment>     px(m);
 
@@ -387,41 +483,28 @@ void BMCI<TFloat, TMem>::expectation(TFloat *x_hat, const T *Y, size_t m)
 
     // Initialize x_hat and p_sum
     for (size_t i = 0; i < m; i++) {
-        x_hat[i] = 0.0;
+        px[i] = 0.0;
         p_sum[i] = 0.0;
     }
 
-    for (size_t ind_sim_blocks = 0; ind_sim_blocks < n_sim_blocks; ++ind_sim_blocks) {
+    for (size_t sim_block_ind = 0; sim_block_ind < m_; sim_block_ind += sim_block_size) {
         // Compute arguments to exp.
-        for (size_t ind_meas_blocks = 0; ind_meas_blocks < n_meas_blocks; ++ind_meas_blocks) {
-            
-        }
-    }
-
-    
-    // Outer loop over database entries.
-    size_t sim_ind(0);
-    for (size_t i = 0; i < m_; ++i) {
-        // Inner loop over measurements.
-        size_t meas_ind(0);
-        for (size_t j = 0; j < m; ++j) {
-            TFloat p(0.0), dy(0.0), dySdy(0.0);
-            #pragma omp simd safelen(row_padding)
-            for (size_t k = 0; k < n_; ++k) {
-                dy = Y_(i, k) - Y_t(j, k);
-                dySdy += dy * dy * s_inv_[k];
+        for (size_t meas_block_ind = 0; meas_block_ind < m; meas_block_ind += meas_block_size) {
+            for (size_t sim_ind = 0; sim_ind < sim_block_size; ++sim_ind) {
+                for (size_t meas_ind = 0; meas_ind < meas_block_size; ++meas_ind) {
+                    size_t sim_row  = sim_block_ind  + sim_ind;
+                    size_t meas_row = meas_block_ind + meas_ind;
+                    p(0, meas_ind) = scaled_dot_product<TFloat, 12>(Y_.get_row(sim_row), Y_t.get_row(meas_row), s_inv_.get());
+                }
+                negexp_px_p<TFloat, meas_block_size>(x_[sim_block_ind + sim_ind], p.get(), px.get() + meas_block_ind, p_sum.get() + meas_block_ind);
             }
-            p = exp(-dySdy);
-            p_sum[j] += p;
-            x_hat[j] += p * x_[i];
-            meas_ind += row_padding;
         }
-        sim_ind += row_padding;
+
     }
 
     // Normalize by p_sum.
     for (size_t i = 0; i < m; i++) {
-        x_hat[i] /= p_sum[i];
+        x_hat[i] = px[i] / p_sum[i];
     }
 }
 
@@ -473,6 +556,60 @@ extern "C" {
 
     BMCI<float>  *bmci_float;
     BMCI<double> *bmci_double;
+
+    static PyObject *
+    vec_negexp_p_px(PyObject *self, PyObject *args)
+    {
+        PyObject *x_array, *y_array, *px_array, *p_array;
+
+        if (!PyArg_ParseTuple(args, "OOOO", &x_array, &y_array, &px_array, &p_array)) {
+            return NULL;
+        }
+
+        if (PyArray_TYPE(x_array) == NPY_FLOAT32) {
+            npy_intp dim = 8;
+            AlignedArray<float, 32> y(8), p(8), px(8);
+            float *y_ptr  = static_cast<float*>(PyArray_DATA(y_array));
+            float *p_ptr  = static_cast<float*>(PyArray_DATA(p_array));
+            float *px_ptr = static_cast<float*>(PyArray_DATA(px_array));
+            for (size_t i = 0; i < dim; ++i) {
+                y[i]  = y_ptr[i];
+                p[i]  = p_ptr[i];
+                px[i] = px_ptr[i];
+            }
+            negexp_px_p<float, 8>(static_cast<float*>(PyArray_DATA(x_array))[0], y.get(), px.get(), p.get());
+
+            for (size_t i = 0; i < dim; ++i) {
+                p_ptr[i]  = p[i];
+                px_ptr[i] = px[i];
+            }
+        } else {
+            npy_intp dim = 8;
+            AlignedArray<double, 32> y(8), p(8), px(8);
+            double *y_ptr = static_cast<double*>(PyArray_DATA(y_array));
+            double *p_ptr  = static_cast<double*>(PyArray_DATA(p_array));
+            double *px_ptr = static_cast<double*>(PyArray_DATA(px_array));
+            for (size_t i = 0; i < dim; ++i) {
+                y[i]  = y_ptr[i];
+                p[i]  = p_ptr[i];
+                px[i] = px_ptr[i];
+            }
+            negexp_px_p<double, 8>(static_cast<double*>(PyArray_DATA(x_array))[0], y.get(), px.get(), p.get());
+
+            for (size_t i = 0; i < dim; ++i) {
+                p_ptr[i]  = p[i];
+                px_ptr[i] = px[i];
+            }
+        }
+
+        // Zip arrays.
+        PyObject *pair = PyTuple_New(2);
+        PyTuple_SetItem(pair, 0, px_array);
+        PyTuple_SetItem(pair, 1, p_array);
+
+        // Done.
+        return pair;
+    }
 
     static PyObject *
     vec_negexp(PyObject *self, PyObject *args)
@@ -675,6 +812,7 @@ extern "C" {
     }
 
     static PyMethodDef methods[] = {
+        {"vec_negexp_px_p",  vec_negexp_p_px, METH_VARARGS, "Vectorized implementation of BMCI kernel."},
         {"vec_negexp",  vec_negexp, METH_VARARGS, "Vectorized implementation of the exponential function."},
         {"vec_scaled_dot",  vec_scaled_dot, METH_VARARGS, "Vectorized implementation of scaled dot product."},
         {"bmci_initialize",  bmci_initialize, METH_VARARGS, "Initialize bmci object."},
