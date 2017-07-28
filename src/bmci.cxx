@@ -18,14 +18,14 @@ struct mem_traits {
 
 template<>
 struct mem_traits<double> {
-    static constexpr size_t padding   = 768;
+    static constexpr size_t padding   = 12;
     static constexpr size_t alignment = 32;
     static constexpr size_t array_padding = 2 * (alignment / sizeof(double)) + 1;
 };
 
 template<>
 struct mem_traits<float> {
-    static constexpr size_t padding   = 384;
+    static constexpr size_t padding   = 16;
     static constexpr size_t alignment = 32;
     static constexpr size_t array_padding = 2 * (alignment / sizeof(float)) + 1;
 };
@@ -385,7 +385,7 @@ class BMCI {
     // Alignment Properties
     static constexpr size_t alignment     = TMem<TFloat>::alignment;
     static constexpr size_t array_padding = TMem<TFloat>::array_padding;
-    static constexpr size_t row_padding   = TMem<TFloat>::padding / sizeof(TFloat);
+    static constexpr size_t row_padding   = TMem<TFloat>::padding;
 
 public:
     BMCI(const double *Y, const double *x, const double *s, size_t m, size_t n)
@@ -435,8 +435,8 @@ private:
     inline size_t get_bin(TFloat x, TFloat hist_min, TFloat d_hist);
     size_t m_, n_;
 
-    PaddedMatrix<TFloat, 1, 12, alignment> Y_;
-    PaddedVector<TFloat, 12, alignment> s_inv_;
+    PaddedMatrix<TFloat, 1, row_padding, alignment> Y_;
+    PaddedVector<TFloat, row_padding, alignment> s_inv_;
     PaddedVector<TFloat, 1, alignment> x_;
 
     TFloat hist_min_, hist_max_;
@@ -468,13 +468,13 @@ template <typename TFloat, template<typename> class TMem>
 template<typename T>
 void BMCI<TFloat, TMem>::expectation(TFloat *x_hat, const T *Y, size_t m)
 {
-    constexpr size_t meas_block_size = 32;
-    constexpr size_t sim_block_size = 32;
+    constexpr size_t meas_block_size = 8;
+    constexpr size_t sim_block_size = 8;
 
     size_t n_meas_blocks = m_ / sim_block_size;
     size_t n_sim_blocks  = m  / meas_block_size;
 
-    PaddedMatrix<TFloat, 1, 12, alignment> Y_t(m, n_);
+    PaddedMatrix<TFloat, 1, row_padding, alignment> Y_t(m, n_);
     PaddedMatrix<TFloat, 1, 1, alignment>  p(sim_block_size, m);
     PaddedVector<TFloat, 1, alignment>     p_sum(m);
     PaddedVector<TFloat, 1, alignment>     px(m);
@@ -494,7 +494,7 @@ void BMCI<TFloat, TMem>::expectation(TFloat *x_hat, const T *Y, size_t m)
                 for (size_t meas_ind = 0; meas_ind < meas_block_size; ++meas_ind) {
                     size_t sim_row  = sim_block_ind  + sim_ind;
                     size_t meas_row = meas_block_ind + meas_ind;
-                    p(0, meas_ind) = scaled_dot_product<TFloat, 12>(Y_.get_row(sim_row), Y_t.get_row(meas_row), s_inv_.get());
+                    p(0, meas_ind) = scaled_dot_product<TFloat, row_padding>(Y_.get_row(sim_row), Y_t.get_row(meas_row), s_inv_.get());
                 }
                 negexp_px_p<TFloat, meas_block_size>(x_[sim_block_ind + sim_ind], p.get(), px.get() + meas_block_ind, p_sum.get() + meas_block_ind);
             }
