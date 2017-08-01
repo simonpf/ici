@@ -115,6 +115,12 @@
     - Computed for different humidity and cloud cover regimes
       #+CAPTION: Degrees of Freedom w.r.t. CWV and IWP
     [[./plots/dofs/dofs.png]] 
+      #+CAPTION: Degrees of Freedom w.r.t. CWV and IWP using only 8 components.
+    [[./plots/dofs/dofs_pca_8.png]] 
+      #+CAPTION: Degrees of Freedom w.r.t. CWV and IWP using only 6 components.
+    [[./plots/dofs/dofs_pca_6.png]] 
+      #+CAPTION: Degrees of Freedom w.r.t. CWV and IWP using only 4 components.
+    [[./plots/dofs/dofs_pca_4.png]] 
       #+CAPTION: Number of simulations used in the computation of the degrees of freedom.
     [[./plots/dofs/counts.png]]
 * Clear Sky Classification
@@ -203,7 +209,6 @@
 * PCA & BMCI
   Dimensionality reduction may help BMCI method to obtain better coverage in measurement-state space. A first approach would
   by to use only 8 PCA components to compress the data.
-  wl
 * Paper Notes
 ** A Hotelling Transformation Approach for Rapid Inversion of Atmospheric Data
    Investigates data reduction techniques based on eigenvector expansions (/hotelling transformations/).

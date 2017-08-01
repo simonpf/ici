@@ -1,0 +1,74 @@
+#+DESCRIPTION: Example of using org to create presentations using the beamer exporter
+#+KEYWORDS:  beamer org orgmode
+#+LANGUAGE:  en
+#+TITLE:  Progress Overview
+
+# specifying the beamer startup gives access to a number of
+# keybindings which make configuring individual slides and components
+# of slides easier.  See, for instance, C-c C-b on a frame headline.
+#+STARTUP: beamer
+
+#+STARTUP: oddeven
+
+# we tell the exporter to use a specific LaTeX document class, as
+# defined in org-latex-classes.  By default, this does not include a
+# beamer entry so this needs to be defined in your configuration (see
+# the tutorial).
+#+LaTeX_CLASS: beamer
+#+LaTeX_CLASS_OPTIONS: [bigger]
+
+# Beamer supports alternate themes.  Choose your favourite here
+#+BEAMER_THEME: Pittsburgh
+#+BEAMER_COLOR_THEME: seagull
+
+# the beamer exporter expects to be told which level of headlines
+# defines the frames.  We use the first level headlines for sections
+# and the second (hence H:2) for frames.
+#+OPTIONS:   H:2 toc:f
+
+# the following allow us to selectively choose headlines to export or not
+#+SELECT_TAGS: export
+#+EXCLUDE_TAGS: noexport
+
+# for a column view of options and configurations for the individual
+# frames
+#+COLUMNS: %20ITEM %13BEAMER_env(Env) %6BEAMER_envargs(Args) %4BEAMER_col(Col) %7BEAMER_extra(Extra)
+* DOFS
+  [[./plots/dofs/dofs_all.png]]
+
+* Uncertainty
+** Uncertainty
+
+  - Interesting paper: Predictive uncertainty in environmental modelling (Cawley, Janacek, Haylock, Dorling)
+  - Proposes different methods of handling/describing predictive distributions in regression problems
+  - Challenge: Predictive uncertainty in environmental modelling
+    - 1 synthetic, 3 real world datasets
+    - aim: minimize negative log-likelihood of unseen test data
+
+** Handling Uncertainty
+   General regression model:
+   \begin{align}
+    y &= f(x) + \epsilon \\
+   \epsilon & \sim \mathcal{N}(0,1)
+   \end{align}
+    - Transformation to make the noise more Gaussian
+    - More general noise processes (Exponential Family)
+    - Dispersion model: Model heteroscedastic noise from data
+    - Quantile regression: Direct modeling of the predictive distribution
+    - Learn parameters of predictive distribution using neural networks
+
+** Quantile Regression
+ - Minimizes /skewed hinge loss/ instead of MSE over training set
+ \begin{align}
+ L_{\tau}(\Delta_y) = \begin{cases} \tau  |\Delta_y| & \Delta_y < 0  \\ (1 - tau)  |\Delta_y| & 0 \leq \Delta_y  \end{cases} \\
+\Delta_y = \hat{y} - y
+\end{align}
+ - Can basically be applied to any ML method
+** Toy Problem
+
+    [[./plots/toy_problem/scatter.png]]
+** QRNN
+    [[./plots/toy_problem/nn_qr.png]]
+** GBM
+    [[./plots/toy_problem/gbm_qr.png]]
+
